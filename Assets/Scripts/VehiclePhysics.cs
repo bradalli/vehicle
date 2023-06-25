@@ -5,7 +5,7 @@ using UnityEngine;
 
 namespace Brad.Vehicle
 {
-    public class VehiclePhysics : MonoBehaviour
+    public class VehiclePhysics : MonoBehaviour, IControllable
     {
         #region Public Variables
         [Header("Wheels")]
@@ -18,6 +18,7 @@ namespace Brad.Vehicle
         public float wheelRayDistance = 1;
 
         [Header("Steering")]
+        public float maxTurnAngle;
         public AnimationCurve fWheelGripCurve;
         public AnimationCurve bWheelGripCurve;
 
@@ -26,7 +27,11 @@ namespace Brad.Vehicle
         public float suspStrength = 10;
         public float suspDampening = 5;
 
-        //[Header("Acceleration")]
+        [Header("Acceleration")]
+        public float accelerationSpeed = 5;
+        public float brakingSpeed = 5;
+        public AnimationCurve wheelTorqueCurve;
+        public float maxSpeed = 20;
 
         #endregion
 
@@ -35,6 +40,18 @@ namespace Brad.Vehicle
         Rigidbody vehicleRb;
         Transform[] wheelsToSteerAndSuspend;
         Transform[] wheelsToAccelerate;
+        IControllable icont;
+
+        // Values
+        float accelerationInput = 0;
+        float steeringInput = 0;
+        Dictionary<string, bool> buttonInputs;
+
+        #region Interface values
+        public float verticalInput { get => accelerationInput; set => accelerationInput = value; }
+        public float horizontalInput { get => steeringInput; set => steeringInput = value; }
+        public Dictionary<string, bool> buttonPressStates { get => buttonInputs; set => buttonInputs = value; }
+        #endregion
 
         #endregion
 
@@ -44,6 +61,8 @@ namespace Brad.Vehicle
         {
             // Cache components
             vehicleRb = GetComponent<Rigidbody>();
+            icont = GetComponent<IControllable>();
+            icont.buttonPressStates = new Dictionary<string, bool> { };
             wheelsToSteerAndSuspend = new Transform[] { flWheel, frWheel, blWheel, brWheel };
 
             // Cache wheels to accelerate based on wheel drive type
@@ -69,21 +88,31 @@ namespace Brad.Vehicle
 
         private void Update()
         {
+            TurnWheels();
+
             // Add force to each wheel in wheelsToSteerAndSuspend
             for(int i = 0; i < wheelsToSteerAndSuspend.Length; i++)
             {
-                if (Physics.Raycast(wheelsToSteerAndSuspend[i].position, -wheelsToSteerAndSuspend[i].up, out RaycastHit hit, wheelRayDistance, wheelRayMask))
-                {
-                    // Cache target wheel
-                    Transform targetWheel = wheelsToSteerAndSuspend[i];
+                // Cache target wheel
+                Transform targetWheel = wheelsToSteerAndSuspend[i];
 
+                if (Physics.Raycast(targetWheel.position, -targetWheel.up, out RaycastHit hit, wheelRayDistance, wheelRayMask))
+                {
                     // Apply force
                     Vector3 wheelForce = SuspensionForce(targetWheel, hit) + SteeringForce(targetWheel);
                     vehicleRb.AddForceAtPosition(wheelForce, targetWheel.position, ForceMode.Force);
 
+                    // Apply brake force if button pressed
+                    if (icont.GetButtonValue("Jump"))
+                    {
+                        // Apply brake force
+                        Vector3 brakeForce = BrakeForce(targetWheel);
+                        vehicleRb.AddForceAtPosition(brakeForce, targetWheel.position, ForceMode.Force);
+                    }
+
                     #region Visualisation
                     // Force visual
-                    Debug.DrawLine(targetWheel.position, targetWheel.position + wheelForce, Color.cyan);
+                    Debug.DrawLine(targetWheel.position, targetWheel.position + wheelForce, Color.yellow);
                     // Local transform visual
                     VisualiseLocalTransform(targetWheel);
                     #endregion
@@ -93,9 +122,14 @@ namespace Brad.Vehicle
             // Add force to each wheel in wheelsToAccelerate
             for (int i = 0; i < wheelsToAccelerate.Length; i++)
             {
-                if (Physics.Raycast(wheelsToAccelerate[i].position, -wheelsToAccelerate[i].up, wheelRayDistance, wheelRayMask))
-                {
+                // Cache target wheel
+                Transform targetWheel = wheelsToAccelerate[i];
 
+                if (Physics.Raycast(targetWheel.position, -targetWheel.up, wheelRayDistance, wheelRayMask))
+                {
+                    // Apply force
+                    Vector3 wheelForce = AccelerationForce(targetWheel);
+                    vehicleRb.AddForceAtPosition(wheelForce, targetWheel.position, ForceMode.Force);
                 }
             }
         }
@@ -124,7 +158,7 @@ namespace Brad.Vehicle
 
             #region Visualisation
             // Raycast visualisation
-            Debug.DrawLine(wheelTransform.position, wheelRayHit.collider ? wheelRayHit.point : wheelTransform.position + wheelTransform.up * -suspHeight, Color.yellow);
+            Debug.DrawLine(wheelTransform.position, wheelRayHit.collider ? wheelRayHit.point : wheelTransform.position + wheelTransform.up * -suspHeight, Color.white);
             #endregion
 
             // Return the final force
@@ -159,8 +193,68 @@ namespace Brad.Vehicle
         // Calculate acceleration force for this wheel
         Vector3 AccelerationForce(Transform wheelTransform)
         {
-            // Return the final force
+            // Direction for the acceleration force
+            Vector3 accelDirection = wheelTransform.forward;
+
+            // Only apply force if input is received
+            if(Mathf.Abs(accelerationInput) > 0)
+            {
+                float speed = Vector3.Dot(transform.forward, vehicleRb.velocity);
+                float normalisedSpeed = Mathf.Clamp01(Mathf.Abs(speed) / maxSpeed);
+
+                // Limit according to torque
+                float torque = wheelTorqueCurve.Evaluate(normalisedSpeed) * accelerationInput;
+
+                // Set wheelForce
+                Vector3 accelForce = accelDirection * torque * accelerationSpeed;
+
+                #region Visualisation
+                // Force visual
+                Debug.DrawLine(wheelTransform.position, wheelTransform.position + accelForce, Color.cyan);
+                #endregion
+
+                // Return acceleration force
+                return accelForce;
+            }
+            
+            // If no input is detected
             return Vector3.zero;
+        }
+
+        Vector3 BrakeForce(Transform wheelTransform)
+        {
+            // Direction for the acceleration force
+            Vector3 brakeDirection = wheelTransform.forward;
+
+            float speed = Vector3.Dot(transform.forward, vehicleRb.velocity);
+            float normalisedSpeed = Mathf.Clamp01(Mathf.Abs(speed) / maxSpeed);
+
+            // Only apply force if moving
+            if (normalisedSpeed > 0)
+            {
+                // Limit according to torque
+                float torque = wheelTorqueCurve.Evaluate(normalisedSpeed);
+
+                // Set wheelForce
+                Vector3 brakeForce = (brakeDirection * Mathf.Sign(speed)) * torque * -brakingSpeed;
+
+                #region Visualisation
+                // Force visual
+                Debug.DrawLine(wheelTransform.position, wheelTransform.position + brakeForce, Color.red);
+                #endregion
+
+                // Return acceleration force
+                return brakeForce;
+            }
+
+            // If no input is detected
+            return Vector3.zero;
+        }
+
+        void TurnWheels()
+        {
+            flWheel.localEulerAngles = new Vector3(0, icont.horizontalInput * maxTurnAngle, 0);
+            frWheel.localEulerAngles = new Vector3(0, icont.horizontalInput * maxTurnAngle, 0);
         }
 
         void VisualiseLocalTransform(Transform targetTransform)
