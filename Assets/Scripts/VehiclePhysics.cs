@@ -11,15 +11,15 @@ namespace Brad.Vehicle
         [Header("Wheels")]
         public Transform flWheel;
         public Transform frWheel, blWheel, brWheel;
-        public float fWheelWeight, bWheelWeight;
+        public float wheelWeight;
         public enum driveType { FrontWheelDrive, BackWheelDrive, FourWheelDrive }
         public driveType wheelDrive = driveType.FourWheelDrive;
         public LayerMask wheelRayMask;
         public float wheelRayDistance = 1;
 
         [Header("Steering")]
-        public float wheelGrip;
-
+        public AnimationCurve fWheelGripCurve;
+        public AnimationCurve bWheelGripCurve;
 
         [Header("Suspension")]
         public float suspHeight = .5f;
@@ -74,10 +74,19 @@ namespace Brad.Vehicle
             {
                 if (Physics.Raycast(wheelsToSteerAndSuspend[i].position, -wheelsToSteerAndSuspend[i].up, out RaycastHit hit, wheelRayDistance, wheelRayMask))
                 {
-                    Debug.DrawLine(wheelsToSteerAndSuspend[i].position, hit.point, Color.red);
+                    // Cache target wheel
+                    Transform targetWheel = wheelsToSteerAndSuspend[i];
 
-                    Vector3 wheelForce = SuspensionForce(wheelsToSteerAndSuspend[i], hit) + SteeringForce(wheelsToSteerAndSuspend[i]);
-                    vehicleRb.AddForceAtPosition(wheelForce, wheelsToSteerAndSuspend[i].position, ForceMode.Force);
+                    // Apply force
+                    Vector3 wheelForce = SuspensionForce(targetWheel, hit) + SteeringForce(targetWheel);
+                    vehicleRb.AddForceAtPosition(wheelForce, targetWheel.position, ForceMode.Force);
+
+                    #region Visualisation
+                    // Force visual
+                    Debug.DrawLine(targetWheel.position, targetWheel.position + wheelForce, Color.cyan);
+                    // Local transform visual
+                    VisualiseLocalTransform(targetWheel);
+                    #endregion
                 }
             }
 
@@ -113,6 +122,11 @@ namespace Brad.Vehicle
             // Caculate suspension force
             float suspensionForce = (offset * suspStrength) - (targetVelocity * suspDampening);
 
+            #region Visualisation
+            // Raycast visualisation
+            Debug.DrawLine(wheelTransform.position, wheelRayHit.collider ? wheelRayHit.point : wheelTransform.position + wheelTransform.up * -suspHeight, Color.yellow);
+            #endregion
+
             // Return the final force
             return suspDirection * suspensionForce;
         }
@@ -120,13 +134,45 @@ namespace Brad.Vehicle
         // Calculate steering force for this wheel
         Vector3 SteeringForce(Transform wheelTransform)
         {
-            return Vector3.zero;
+            // Direction for the steering force
+            Vector3 steerDirection = wheelTransform.right;
+
+            // World velocity of the wheel
+            Vector3 wheelVelocity = vehicleRb.GetPointVelocity(wheelTransform.position);
+
+            // Steering velocity
+            float steerVelocity = Vector3.Dot(steerDirection, wheelVelocity);
+
+            // Get wheelGripAmount depending on if its a front or back wheel
+            float wheelGripAmount = wheelTransform.name.Contains('F') ? fWheelGripCurve.Evaluate(steerVelocity) : bWheelGripCurve.Evaluate(steerVelocity);
+
+            // Target velocity change amount
+            float targetVelocityChange = -steerVelocity * wheelGripAmount;
+
+            // Target acceleration
+            float targetAcceleration = targetVelocityChange / Time.fixedDeltaTime;
+
+            // Return the final force
+            return steerDirection * wheelWeight * targetAcceleration;
         }
 
         // Calculate acceleration force for this wheel
         Vector3 AccelerationForce(Transform wheelTransform)
         {
+            // Return the final force
             return Vector3.zero;
+        }
+
+        void VisualiseLocalTransform(Transform targetTransform)
+        {
+            // Right vector
+            Debug.DrawLine(targetTransform.position, targetTransform.position + targetTransform.right, Color.red);
+
+            // Up vector
+            Debug.DrawLine(targetTransform.position, targetTransform.position + targetTransform.up, Color.green);
+
+            // Forward vector
+            Debug.DrawLine(targetTransform.position, targetTransform.position + targetTransform.forward, Color.blue);
         }
 
         #endregion
