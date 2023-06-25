@@ -9,6 +9,9 @@ namespace Brad.Vehicle
     public class VehiclePhysics : MonoBehaviour, IControllable
     {
         #region Public Variables
+        [Header("Other")]
+        public Vector3 centerOfMass;
+
         [Header("Wheels")]
         public Transform flWheel;
         public Transform frWheel, blWheel, brWheel;
@@ -20,6 +23,7 @@ namespace Brad.Vehicle
         public float wheelRadius = .5f;
 
         [Header("Steering")]
+        public AnimationCurve steerCurve;
         public float maxTurnAngle;
         public AnimationCurve fWheelGripCurve;
         public AnimationCurve bWheelGripCurve;
@@ -41,13 +45,16 @@ namespace Brad.Vehicle
         #region Private Variables
         // Components
         Rigidbody vehicleRb;
-        Transform[] wheelsToSteerAndSuspend;
+        Transform[] allWheels;
         Transform[] wheelsToAccelerate;
         IControllable icont;
+        ParticleSystem particles;
 
         // Values
         float accelerationInput = 0;
         float steeringInput = 0;
+        RaycastHit[] wheelRayResults;
+        bool grounded = false;
         
 
         #region Interface values
@@ -63,10 +70,11 @@ namespace Brad.Vehicle
         {
             // Cache components
             vehicleRb = GetComponent<Rigidbody>();
-            vehicleRb.centerOfMass = Vector3.zero;
-
+            vehicleRb.centerOfMass = centerOfMass;
+            particles = GetComponentInChildren<ParticleSystem>();
             icont = GetComponent<IControllable>();
-            wheelsToSteerAndSuspend = new Transform[] { flWheel, frWheel, blWheel, brWheel };
+            allWheels = new Transform[] { flWheel, frWheel, blWheel, brWheel };
+            wheelRayResults = new RaycastHit[allWheels.Length];
 
             // Cache wheels to accelerate based on wheel drive type
             switch (wheelDrive)
@@ -93,18 +101,45 @@ namespace Brad.Vehicle
 
         private void Update()
         {
+            bool tmpIsGrounded = false;
+
+            for (int i = 0; i < wheelRayResults.Length; i++)
+            {
+                Physics.Raycast(allWheels[i].position, -allWheels[i].up, out RaycastHit hit, wheelRayDistance, wheelRayMask);
+                wheelRayResults[i] = hit;
+                if (hit.collider)
+                    tmpIsGrounded = true;
+            }
+
+            grounded = tmpIsGrounded;
+        }
+
+        private void FixedUpdate()
+        {
+            if (grounded)
+            {
+                if(!particles.isPlaying)
+                    particles.Play();
+            }
+
+            else
+            {
+                if (particles.isPlaying)
+                    particles.Pause();
+            }
+
             TurnWheels();
 
             // Add force to each wheel in wheelsToSteerAndSuspend
-            for(int i = 0; i < wheelsToSteerAndSuspend.Length; i++)
+            for(int i = 0; i < allWheels.Length; i++)
             {
                 // Cache target wheel
-                Transform targetWheel = wheelsToSteerAndSuspend[i];
+                Transform targetWheel = allWheels[i];
 
-                if (Physics.Raycast(targetWheel.position, -targetWheel.up, out RaycastHit hit, wheelRayDistance, wheelRayMask))
+                if (wheelRayResults[i].collider != null)
                 {
                     // Apply force
-                    Vector3 wheelForce = SuspensionForce(targetWheel, hit) + SteeringForce(targetWheel);
+                    Vector3 wheelForce = SuspensionForce(targetWheel, wheelRayResults[i]) + SteeringForce(targetWheel);
                     vehicleRb.AddForceAtPosition(wheelForce, targetWheel.position, ForceMode.Force);
 
                     // Apply brake force if button pressed
@@ -125,7 +160,7 @@ namespace Brad.Vehicle
 
                 // Adjust wheel mesh
                 Transform wheelMesh = targetWheel.GetChild(0);
-                wheelMesh.position = hit.collider ? new Vector3(targetWheel.position.x, hit.point.y + wheelRadius, targetWheel.position.z) :
+                wheelMesh.position = wheelRayResults[i].collider ? new Vector3(targetWheel.position.x, wheelRayResults[i].point.y + wheelRadius, targetWheel.position.z) :
                     targetWheel.position + (-targetWheel.up * suspHeight);
             }
 
@@ -143,6 +178,12 @@ namespace Brad.Vehicle
                 }
             }
         }
+        private void OnDrawGizmos()
+        {
+            Gizmos.color = Color.green;
+            Gizmos.DrawWireSphere(transform.position + centerOfMass, .1f);
+        }
+
 
         #endregion
 
@@ -263,8 +304,11 @@ namespace Brad.Vehicle
 
         void TurnWheels()
         {
-            flWheel.localEulerAngles = new Vector3(0, icont.horizontalInput * maxTurnAngle, 0);
-            frWheel.localEulerAngles = new Vector3(0, icont.horizontalInput * maxTurnAngle, 0);
+            float speed = Vector3.Dot(transform.forward, vehicleRb.velocity);
+            float normalisedSpeed = Mathf.Clamp01(Mathf.Abs(speed) / maxSpeed);
+
+            flWheel.localEulerAngles = new Vector3(0, icont.horizontalInput * maxTurnAngle * steerCurve.Evaluate(normalisedSpeed), 0);
+            frWheel.localEulerAngles = new Vector3(0, icont.horizontalInput * maxTurnAngle * steerCurve.Evaluate(normalisedSpeed), 0);
         }
 
         public void FlipVehicle()
