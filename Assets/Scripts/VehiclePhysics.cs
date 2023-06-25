@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using Unity.VisualScripting;
@@ -16,6 +17,7 @@ namespace Brad.Vehicle
         public driveType wheelDrive = driveType.FourWheelDrive;
         public LayerMask wheelRayMask;
         public float wheelRayDistance = 1;
+        public float wheelRadius = .5f;
 
         [Header("Steering")]
         public float maxTurnAngle;
@@ -32,6 +34,7 @@ namespace Brad.Vehicle
         public float brakingSpeed = 5;
         public AnimationCurve wheelTorqueCurve;
         public float maxSpeed = 20;
+        public bool brake { get; set; }
 
         #endregion
 
@@ -45,12 +48,11 @@ namespace Brad.Vehicle
         // Values
         float accelerationInput = 0;
         float steeringInput = 0;
-        Dictionary<string, bool> buttonInputs;
+        
 
         #region Interface values
         public float verticalInput { get => accelerationInput; set => accelerationInput = value; }
         public float horizontalInput { get => steeringInput; set => steeringInput = value; }
-        public Dictionary<string, bool> buttonPressStates { get => buttonInputs; set => buttonInputs = value; }
         #endregion
 
         #endregion
@@ -61,8 +63,9 @@ namespace Brad.Vehicle
         {
             // Cache components
             vehicleRb = GetComponent<Rigidbody>();
+            vehicleRb.centerOfMass = Vector3.zero;
+
             icont = GetComponent<IControllable>();
-            icont.buttonPressStates = new Dictionary<string, bool> { };
             wheelsToSteerAndSuspend = new Transform[] { flWheel, frWheel, blWheel, brWheel };
 
             // Cache wheels to accelerate based on wheel drive type
@@ -84,6 +87,8 @@ namespace Brad.Vehicle
                     wheelsToAccelerate = new Transform[] { flWheel, frWheel, blWheel, brWheel };
                     break;
             }
+
+            vehicleRb.useGravity = true;
         }
 
         private void Update()
@@ -103,7 +108,7 @@ namespace Brad.Vehicle
                     vehicleRb.AddForceAtPosition(wheelForce, targetWheel.position, ForceMode.Force);
 
                     // Apply brake force if button pressed
-                    if (icont.GetButtonValue("Jump"))
+                    if (brake)
                     {
                         // Apply brake force
                         Vector3 brakeForce = BrakeForce(targetWheel);
@@ -117,6 +122,11 @@ namespace Brad.Vehicle
                     VisualiseLocalTransform(targetWheel);
                     #endregion
                 }
+
+                // Adjust wheel mesh
+                Transform wheelMesh = targetWheel.GetChild(0);
+                wheelMesh.position = hit.collider ? new Vector3(targetWheel.position.x, hit.point.y + wheelRadius, targetWheel.position.z) :
+                    targetWheel.position + (-targetWheel.up * suspHeight);
             }
 
             // Add force to each wheel in wheelsToAccelerate
@@ -255,6 +265,12 @@ namespace Brad.Vehicle
         {
             flWheel.localEulerAngles = new Vector3(0, icont.horizontalInput * maxTurnAngle, 0);
             frWheel.localEulerAngles = new Vector3(0, icont.horizontalInput * maxTurnAngle, 0);
+        }
+
+        public void FlipVehicle()
+        {
+            transform.eulerAngles = Vector3.zero;
+            transform.position += Vector3.up * 2;
         }
 
         void VisualiseLocalTransform(Transform targetTransform)
