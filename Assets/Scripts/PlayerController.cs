@@ -28,5 +28,9 @@ public class PlayerController : MonoBehaviour
 
         if (Input.GetButtonDown("Fire1"))
             flipVehicle.Invoke();
+
+        if (Input.GetKeyDown(KeyCode.Escape))
+            Application.Quit();
+
     }
 }

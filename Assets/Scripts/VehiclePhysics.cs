@@ -11,6 +11,7 @@ namespace Brad.Vehicle
     {
         #region Public Variables
         [Header("Other")]
+        public bool engineOn = true;
         public Vector3 centerOfMass;
         public bool flipped = false;
 
@@ -47,6 +48,10 @@ namespace Brad.Vehicle
         public UnityEvent onVehicleReset;
         public UnityEvent onGrounded;
         public UnityEvent onInAir;
+        /*
+        [Header("Audio")]
+        [SerializeField] AudioClip aEngineStart; 
+        [SerializeField] AudioClip aEngineIdle, aEngineRev, aBrake;*/
 
         #endregion
 
@@ -56,7 +61,7 @@ namespace Brad.Vehicle
         Transform[] allWheels;
         Transform[] wheelsToAccelerate;
         IControllable icont;
-        ParticleSystem particles;
+        //AudioSource aud;
 
         // Values
         [HideInInspector]
@@ -67,6 +72,8 @@ namespace Brad.Vehicle
         bool grounded = false;
         bool lastGrounded;
         bool lastFlipped;
+
+        bool runningSequence;
         
 
         #region Interface values
@@ -83,7 +90,7 @@ namespace Brad.Vehicle
             // Cache components
             vehicleRb = GetComponent<Rigidbody>();
             vehicleRb.centerOfMass = centerOfMass;
-            particles = GetComponentInChildren<ParticleSystem>();
+            //aud = GetComponentInChildren<AudioSource>();
             icont = GetComponent<IControllable>();
             allWheels = new Transform[] { flWheel, frWheel, blWheel, brWheel };
             wheelRayResults = new RaycastHit[allWheels.Length];
@@ -160,10 +167,8 @@ namespace Brad.Vehicle
             }
             #endregion
 
-            TurnWheels();
-
             // Add force to each wheel in wheelsToSteerAndSuspend
-            for(int i = 0; i < allWheels.Length; i++)
+            for (int i = 0; i < allWheels.Length; i++)
             {
                 // Cache target wheel
                 Transform targetWheel = allWheels[i];
@@ -196,6 +201,9 @@ namespace Brad.Vehicle
                     targetWheel.position + (-targetWheel.up * suspHeight);
             }
 
+            TurnWheels();
+            //HandleAudio();
+
             // Add force to each wheel in wheelsToAccelerate
             for (int i = 0; i < wheelsToAccelerate.Length; i++)
             {
@@ -210,6 +218,7 @@ namespace Brad.Vehicle
                 }
             }
         }
+
         private void OnDrawGizmos()
         {
             Gizmos.color = Color.green;
@@ -345,13 +354,30 @@ namespace Brad.Vehicle
 
         public void FlipVehicle()
         {
-            if (flipped)
-            {
-                transform.eulerAngles = new Vector3(0, transform.eulerAngles.y, 0);
-                transform.position += Vector3.up * 2;
-            }
-            
+            transform.eulerAngles = new Vector3(0, transform.eulerAngles.y, 0);
+            transform.position += Vector3.up * 2;
+
         }
+
+        /*
+        public void ToggleEngine()
+        {
+            if (!engineOn && !runningSequence)
+                StartCoroutine(StartEngineSequence());
+        }*/
+
+        /*
+        void HandleAudio()
+        {
+            if (!aud.isPlaying)
+                aud.Play();
+
+            aud.clip = brake ? aBrake : aEngineIdle;
+
+            float speed = Vector3.Dot(transform.forward, vehicleRb.velocity);
+            aud.pitch = 1 + (Mathf.Clamp01(Mathf.Abs(speed) / maxSpeed) * .5f) * icont.verticalInput;
+        }
+        */
 
         void VisualiseLocalTransform(Transform targetTransform)
         {
@@ -367,6 +393,23 @@ namespace Brad.Vehicle
         }
 
         #endregion
+        /*
+        public IEnumerator StartEngineSequence()
+        {
+            runningSequence = true;
+
+            aud.clip = aEngineStart;
+            aud.Play();
+            yield return new WaitForSeconds(aud.clip.length);
+
+            aud.clip = aEngineIdle;
+            aud.loop = true;
+            aud.Play();
+
+            runningSequence = false;
+
+            engineOn = true;
+        }*/
     }
 }
 
