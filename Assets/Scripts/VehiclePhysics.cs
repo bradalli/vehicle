@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using Unity.VisualScripting;
 using UnityEngine;
+using UnityEngine.Events;
 
 namespace Brad.Vehicle
 {
@@ -11,6 +12,7 @@ namespace Brad.Vehicle
         #region Public Variables
         [Header("Other")]
         public Vector3 centerOfMass;
+        public bool flipped = false;
 
         [Header("Wheels")]
         public Transform flWheel;
@@ -40,6 +42,12 @@ namespace Brad.Vehicle
         public float maxSpeed = 20;
         public bool brake { get; set; }
 
+        [Header("Events")]
+        public UnityEvent onFlipped;
+        public UnityEvent onVehicleReset;
+        public UnityEvent onGrounded;
+        public UnityEvent onInAir;
+
         #endregion
 
         #region Private Variables
@@ -51,10 +59,14 @@ namespace Brad.Vehicle
         ParticleSystem particles;
 
         // Values
+        [HideInInspector]
+        public float currentSpeed;
         float accelerationInput = 0;
         float steeringInput = 0;
         RaycastHit[] wheelRayResults;
         bool grounded = false;
+        bool lastGrounded;
+        bool lastFlipped;
         
 
         #region Interface values
@@ -101,6 +113,7 @@ namespace Brad.Vehicle
 
         private void Update()
         {
+            #region Grounded check
             bool tmpIsGrounded = false;
 
             for (int i = 0; i < wheelRayResults.Length; i++)
@@ -112,21 +125,40 @@ namespace Brad.Vehicle
             }
 
             grounded = tmpIsGrounded;
+            #endregion
         }
 
         private void FixedUpdate()
         {
-            if (grounded)
-            {
-                if(!particles.isPlaying)
-                    particles.Play();
-            }
+            currentSpeed = vehicleRb.velocity.magnitude;
 
-            else
+            #region Vehicle flipped events
+            flipped = transform.up.y < .5f;
+
+            if(lastFlipped != flipped)
             {
-                if (particles.isPlaying)
-                    particles.Pause();
+                if (flipped == true)
+                    onFlipped.Invoke();
+
+                else
+                    onVehicleReset.Invoke();
+
+                lastFlipped = flipped;
             }
+            #endregion
+
+            #region Grounded events 
+            if (lastGrounded != grounded)
+            {
+                if (grounded == true)
+                    onGrounded.Invoke();
+
+                else
+                    onInAir.Invoke();
+
+                lastGrounded = grounded;
+            }
+            #endregion
 
             TurnWheels();
 
@@ -220,7 +252,7 @@ namespace Brad.Vehicle
         Vector3 SteeringForce(Transform wheelTransform)
         {
             // Direction for the steering force
-            Vector3 steerDirection = wheelTransform.right;
+            Vector3 steerDirection = wheelTransform.name.Contains('R') ? wheelTransform.right : -wheelTransform.right;
 
             // World velocity of the wheel
             Vector3 wheelVelocity = vehicleRb.GetPointVelocity(wheelTransform.position);
@@ -307,20 +339,25 @@ namespace Brad.Vehicle
             float speed = Vector3.Dot(transform.forward, vehicleRb.velocity);
             float normalisedSpeed = Mathf.Clamp01(Mathf.Abs(speed) / maxSpeed);
 
-            flWheel.localEulerAngles = new Vector3(0, icont.horizontalInput * maxTurnAngle * steerCurve.Evaluate(normalisedSpeed), 0);
-            frWheel.localEulerAngles = new Vector3(0, icont.horizontalInput * maxTurnAngle * steerCurve.Evaluate(normalisedSpeed), 0);
+            flWheel.localEulerAngles = new Vector3(0, (icont.horizontalInput * maxTurnAngle) * steerCurve.Evaluate(normalisedSpeed), 0);
+            frWheel.localEulerAngles = new Vector3(0, (icont.horizontalInput * maxTurnAngle) * steerCurve.Evaluate(normalisedSpeed), 0);
         }
 
         public void FlipVehicle()
         {
-            transform.eulerAngles = Vector3.zero;
-            transform.position += Vector3.up * 2;
+            if (flipped)
+            {
+                transform.eulerAngles = new Vector3(0, transform.eulerAngles.y, 0);
+                transform.position += Vector3.up * 2;
+            }
+            
         }
 
         void VisualiseLocalTransform(Transform targetTransform)
         {
             // Right vector
-            Debug.DrawLine(targetTransform.position, targetTransform.position + targetTransform.right, Color.red);
+            Debug.DrawLine(targetTransform.position, targetTransform.position +
+                (targetTransform.name.Contains('R') ? targetTransform.right : -targetTransform.right), Color.red);
 
             // Up vector
             Debug.DrawLine(targetTransform.position, targetTransform.position + targetTransform.up, Color.green);
